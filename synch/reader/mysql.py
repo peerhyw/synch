@@ -14,6 +14,8 @@ from synch.convert import SqlConvert
 from synch.reader import Reader
 from synch.redis import RedisLogPos
 from synch.settings import Settings
+# from synch.replication.etl import etl_create_table
+from synch.factory import get_writer
 
 logger = logging.getLogger("synch.reader.mysql")
 
@@ -44,6 +46,7 @@ class Mysql(Reader):
         self.cursor = self.conn.cursor()
         self.databases = list(map(lambda x: x.get("database"), source_db.get("databases")))
         self.pos_handler = RedisLogPos(alias)
+        self.default_schema = self.source_db.get("databases")[0].get('database')
 
     def get_source_select_sql(self, schema: str, table: str, sign_column: str = None):
         select = "*"
@@ -80,7 +83,7 @@ class Mysql(Reader):
         logger.info(f"shutdown producer on {sig.name}, current position: {log_f}:{log_p}")
         exit()
 
-    def start_sync(self, broker: Broker):
+    def start_sync(self, broker: Broker, alias: str):
         log_file, log_pos = self.pos_handler.get_log_pos()
         if not (log_file and log_pos):
             log_file = self.init_binlog_file
@@ -117,7 +120,9 @@ class Mysql(Reader):
             skip_dmls=self.skip_dmls,
             skip_delete_tables=self.skip_delete_tables,
             skip_update_tables=self.skip_update_tables,
+            alias=alias
         ):
+
             if table and table not in schema_tables.get(schema):
                 continue
             event["values"] = self.deep_decode_dict(event["values"])
@@ -137,6 +142,7 @@ class Mysql(Reader):
         skip_dmls,
         skip_delete_tables,
         skip_update_tables,
+        alias
     ) -> Generator:
         stream = BinLogStreamReader(
             connection_settings=dict(
@@ -156,25 +162,78 @@ class Mysql(Reader):
         for binlog_event in stream:
             if isinstance(binlog_event, QueryEvent):
                 schema = binlog_event.schema.decode()
+                if len(schema) == 0:
+                    schema = self.default_schema
                 query = binlog_event.query.lower()
-                if "alter" not in query:
+                if "alter" in query:
+                    table, convent_sql = SqlConvert.to_clickhouse(
+                        schema, query, Settings.cluster_name()
+                    )
+                    if not convent_sql:
+                        continue
+                    event = {
+                        "table": table,
+                        "schema": schema,
+                        "action": "query",
+                        "values": {"query": convent_sql},
+                        "event_unixtime": int(time.time() * 10 ** 6),
+                        "action_seq": 0,
+                    }
+                    yield schema, table, event, stream.log_file, stream.log_pos
+                elif "create" in query:
+                    table_name = SqlConvert.create_to_clickhouse(schema, query)
+                    if not table_name:
+                        continue
+                    event = {
+                        "table": table_name,
+                        "schema": schema,
+                        "action": "query",
+                        "values": {"query": query},
+                        "event_unixtime": int(time.time() * 10 ** 6),
+                        "action_seq": 0,
+                    }
+                    pk = self.get_primary_key(schema, table_name)
+                    writer = get_writer(Settings.default_engine())
+                    if not writer.check_table_exists(schema, table_name):
+                        partition_by = Settings.default_partition_by()
+                        engine_settings = Settings.default_engine_settings()
+                        sign_column = Settings.default_sign_column()
+                        version_column = Settings.default_version_column()
+                        writer.execute(
+                            writer.get_table_create_sql(
+                                reader=self,
+                                schema=schema,
+                                table=table_name,
+                                pk=pk,
+                                partition_by=partition_by,
+                                engine_settings=engine_settings,
+                                sign_column=sign_column,
+                                version_column=version_column,
+                            )
+                        )
+                        if Settings.is_cluster():
+                            for w in get_writer(choice=False):
+                                w.execute(
+                                    w.get_distributed_table_create_sql(
+                                        schema, table_name, Settings.get(
+                                            "clickhouse.distributed_suffix")
+                                    )
+                                )
+                        if self.fix_column_type and not Settings.default_skip_decimal():
+                            writer.fix_table_column_type(
+                                self, schema, table_name)
+                        full_insert_sql = writer.get_full_insert_sql(
+                            self, schema, table_name, sign_column)
+                        writer.execute(full_insert_sql)
+                        Settings.set_table(alias, schema, table_name)
+                        logger.info(
+                            f"full data etl for {schema}.{table_name} success")
+                else:
                     continue
-                table, convent_sql = SqlConvert.to_clickhouse(
-                    schema, query, Settings.cluster_name()
-                )
-                if not convent_sql:
-                    continue
-                event = {
-                    "table": table,
-                    "schema": schema,
-                    "action": "query",
-                    "values": {"query": convent_sql},
-                    "event_unixtime": int(time.time() * 10 ** 6),
-                    "action_seq": 0,
-                }
-                yield schema, None, event, stream.log_file, stream.log_pos
             else:
                 schema = binlog_event.schema
+                if len(schema) == 0:
+                    schema = self.default_schema
                 table = binlog_event.table
                 skip_dml_table_name = f"{schema}.{table}"
                 for row in binlog_event.rows:

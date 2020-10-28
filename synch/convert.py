@@ -7,6 +7,8 @@ from pyparsing import ParseResults
 
 from synch.common import cluster_sql
 
+import re
+
 logger = logging.getLogger("synch.convert")
 
 
@@ -49,6 +51,7 @@ class SqlConvert:
 
     @classmethod
     def get_parse_ret(cls, query: str) -> ParseRet:
+        query = cls.remove_database_name(query)
         parsed = mysqlparse.parse(query)
         statement = parsed.statements[0]  # type:ast.stmt
         statement_type = statement.statement_type
@@ -103,7 +106,8 @@ class SqlConvert:
         :param cluster_name
         :return:
         """
-        query = query.replace(f"{schema}.", "")
+        if len(schema) > 0:
+            query = query.replace(f"{schema}.", "")
         try:
             ret = cls.get_parse_ret(query)
         except Exception as e:
@@ -130,4 +134,33 @@ class SqlConvert:
             sql = f"alter table {schema}.{ret.table_name}{cluster_sql(cluster_name)} rename column {column_name} to {ret.new_column_name}"
         elif alter_action == "MODIFY COLUMN":
             sql = f"alter table {schema}.{ret.table_name}{cluster_sql(cluster_name)} modify column {column_name} {cls.get_real_data_type(ret)}{default}{comment}"
+        ret.table_name = ret.table_name.strip('`')
         return ret.table_name, sql
+
+    @classmethod
+    def create_to_clickhouse(cls, schema: str, query: str):
+        if len(schema) > 0:
+            query = query.replace(f"{schema}.", "")
+        try:
+            table_name = cls.extract_create_table_name(query)
+        except Exception as e:
+            logger.warning(
+                f"Parse query error, query: {query}, err: {e}", stack_info=True, exc_info=True
+            )
+            return ""
+        return table_name
+
+    @classmethod
+    def extract_create_table_name(cls, query: str):
+        new_query = cls.remove_database_name(query)
+        p = r"CREATE\s+TABLE\s+`*(.*?)`*\s+\("
+        pattern = re.compile(p, re.I)
+        m = pattern.match(new_query)
+        table_name = m.group(1)
+        return table_name
+
+    @classmethod
+    def remove_database_name(cls, query: str):
+        pattern = r"((?i)ALTER|CREATE\s+TABLE\s+)(`*.*?`*\.)(.*)"
+        new_query = re.sub(pattern, r'\1\3', query)
+        return new_query
