@@ -1,7 +1,7 @@
 core:
   debug: true # when set True, will display sql information.
-  insert_num: 1 # how many num to submit,recommend set 20000 when production
-  insert_interval: 1 # how many seconds to submit,recommend set 60 when production
+  insert_num: 5000 # how many num to submit,recommend set 20000 when production
+  insert_interval: 5 # how many seconds to submit,recommend set 60 when production
   # enable this will auto create database `synch` in ClickHouse and insert monitor data
   monitoring: true
 
@@ -10,7 +10,7 @@ sentry:
   dsn:
 
 redis:
-  host: redis
+  host: 127.0.0.1
   port: 6379
   db: 0
   password:
@@ -28,10 +28,10 @@ source_dbs:
     alias: mysql_db # must be unique
     broker_type: redis # current support redis and kafka
     server_id: 1
-    host: mysql
+    host: 127.0.0.1
     port: 3306
     user: root
-    password: "123456"
+    password: "root"
     # optional, auto get from `show master status` when empty
     init_binlog_file:
     # optional, auto get from `show master status` when empty
@@ -40,25 +40,26 @@ source_dbs:
     skip_delete_tables: # tables skip delete, format with schema.table
     skip_update_tables: # tables skip update, format with schema.table
     databases:
-      - database: synch_mysql_test
+      - database: clickhouse
         # optional, default true, auto create database when database in clickhouse not exists
         auto_create: true
         tables:
-          - table: test
-            # optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.
-            skip_decimal: false # set it true will replace decimal with string type.
-            # optional, default true
-            auto_full_etl: true # auto do full etl at first when table not exists
-            # optional, default ReplacingMergeTree
-            clickhouse_engine: ReplacingMergeTree # current support MergeTree, CollapsingMergeTree, VersionedCollapsingMergeTree, ReplacingMergeTree
-            # optional
-            partition_by: # Table create partitioning by, like toYYYYMM(created_at).
-            # optional
-            settings: # Table create settings, like index_granularity=8192
-            # optional
-            sign_column: sign # need when clickhouse_engine=CollapsingMergeTree and VersionedCollapsingMergeTree, no need real in source db, will auto generate in clickhouse
-            # optional
-            version_column: # need when clickhouse_engine=VersionedCollapsingMergeTree and ReplacingMergeTree(optional), need real in source db, usually is `updated_at` with auto update.
+          - table: h
+						# optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.
+						skip_decimal: false
+						# optional, default true
+						auto_full_etl: true
+						# optional, default ReplacingMergeTree
+						clickhouse_engine: ReplacingMergeTree
+						# optional
+						partition_by:
+						# optional
+						engine_settings:
+						# optional
+						sign_column: sign
+						# optional
+						version_column:
+					#table_flag_mysql_db_clickhouse...
   - db_type: postgres
     alias: postgres_db
     broker_type: kafka # current support redis and kafka
@@ -81,12 +82,19 @@ source_dbs:
 clickhouse:
   # shard hosts when cluster, will insert by random
   hosts:
-    - clickhouse:9000
+    - localhost:9000
 #    - clickhouse:9021
   user: default
   password: ''
   cluster_name:  # enable cluster mode when not empty, and hosts must be more than one if enable.
   distributed_suffix: _all # distributed tables suffix, available in cluster
+  default_engine: ReplacingMergeTree
+  default_sign_column: sign
+  default_version_column:
+  default_partition_by:
+  default_engine_settings:
+  default_skip_decimal: false
+
 kafka:
   servers:
     - kafka:9092
