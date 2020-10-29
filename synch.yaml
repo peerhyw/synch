@@ -43,6 +43,7 @@ source_dbs:
       - database: clickhouse
         # optional, default true, auto create database when database in clickhouse not exists
         auto_create: true
+        auto_create_table: false
         tables:
           - table: h
 						# optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.

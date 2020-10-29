@@ -99,6 +99,7 @@ class Mysql(Reader):
         schema_tables = {}
         for database in self.source_db.get("databases"):
             database_name = database.get("database")
+            auto_create_table = database.get("auto_create_table")
             for table in database.get("tables"):
                 table_name = table.get("table")
                 schema_tables.setdefault(database_name, []).append(table_name)
@@ -120,7 +121,8 @@ class Mysql(Reader):
             skip_dmls=self.skip_dmls,
             skip_delete_tables=self.skip_delete_tables,
             skip_update_tables=self.skip_update_tables,
-            alias=alias
+            alias=alias,
+            auto_create_table=auto_create_table
         ):
 
             if table and table not in schema_tables.get(schema):
@@ -145,7 +147,8 @@ class Mysql(Reader):
         skip_dmls,
         skip_delete_tables,
         skip_update_tables,
-        alias
+        alias,
+        auto_create_table
     ) -> Generator:
         stream = BinLogStreamReader(
             connection_settings=dict(
@@ -163,7 +166,7 @@ class Mysql(Reader):
             slave_heartbeat=10,
         )
         while True:
-            for schema, table, event, stream.log_file, stream.log_pos in self.read_from_stream(stream, alias):
+            for schema, table, event, stream.log_file, stream.log_pos in self.read_from_stream(stream, alias, auto_create_table):
                 yield schema, table, event, stream.log_file, stream.log_pos
                 if event["action"] == "create":
                     only_tables.append(table)
@@ -187,7 +190,8 @@ class Mysql(Reader):
     def read_from_stream(
         self,
         stream,
-        alias
+        alias,
+        auto_create_table
     ) -> Generator:
         for binlog_event in stream:
             if isinstance(binlog_event, QueryEvent):
@@ -195,7 +199,6 @@ class Mysql(Reader):
                 if len(schema) == 0:
                     schema = self.default_schema
                 query = binlog_event.query.lower()
-                logger.debug(f"query: {query} {schema}")
                 if "alter" in query:
                     table, convent_sql = SqlConvert.to_clickhouse(
                         schema, query, Settings.cluster_name()
@@ -211,7 +214,7 @@ class Mysql(Reader):
                         "action_seq": 0,
                     }
                     yield schema, table, event, stream.log_file, stream.log_pos
-                elif "create" in query:
+                elif "create" in query and auto_create_table:
                     table_name = SqlConvert.create_to_clickhouse(schema, query)
                     table = table_name
                     if not table_name:
