@@ -124,7 +124,10 @@ class Mysql(Reader):
         ):
 
             if table and table not in schema_tables.get(schema):
-                continue
+                if event["action"] == "create":
+                    schema_tables.get(schema).append(table)
+                else:
+                    continue
             event["values"] = self.deep_decode_dict(event["values"])
             broker.send(msg=event, schema=schema)
             self.pos_handler.set_log_pos_slave(file, pos)
@@ -159,12 +162,40 @@ class Mysql(Reader):
             fail_on_table_metadata_unavailable=True,
             slave_heartbeat=10,
         )
+        while True:
+            for schema, table, event, stream.log_file, stream.log_pos in self.read_from_stream(stream, alias):
+                yield schema, table, event, stream.log_file, stream.log_pos
+                if event["action"] == "create":
+                    only_tables.append(table)
+                    stream = BinLogStreamReader(
+                        connection_settings=dict(
+                            host=self.host, port=self.port, user=self.user, passwd=self.password,
+                        ),
+                        resume_stream=True,
+                        blocking=True,
+                        server_id=server_id,
+                        only_tables=only_tables,
+                        only_schemas=only_schemas,
+                        only_events=self.only_events,
+                        log_file=stream.log_file,
+                        log_pos=stream.log_pos,
+                        fail_on_table_metadata_unavailable=True,
+                        slave_heartbeat=10,
+                    )
+                break
+
+    def read_from_stream(
+        self,
+        stream,
+        alias
+    ) -> Generator:
         for binlog_event in stream:
             if isinstance(binlog_event, QueryEvent):
                 schema = binlog_event.schema.decode()
                 if len(schema) == 0:
                     schema = self.default_schema
                 query = binlog_event.query.lower()
+                logger.debug(f"query: {query} {schema}")
                 if "alter" in query:
                     table, convent_sql = SqlConvert.to_clickhouse(
                         schema, query, Settings.cluster_name()
@@ -182,52 +213,45 @@ class Mysql(Reader):
                     yield schema, table, event, stream.log_file, stream.log_pos
                 elif "create" in query:
                     table_name = SqlConvert.create_to_clickhouse(schema, query)
+                    table = table_name
                     if not table_name:
                         continue
-                    event = {
-                        "table": table_name,
-                        "schema": schema,
-                        "action": "query",
-                        "values": {"query": query},
-                        "event_unixtime": int(time.time() * 10 ** 6),
-                        "action_seq": 0,
-                    }
                     pk = self.get_primary_key(schema, table_name)
+                    if not pk:
+                        logger.warning(f"No pk found in {schema}.{table_name}, skip")
+                        continue
+                    elif isinstance(pk, tuple):
+                        pk = f"({','.join(pk)})"
                     writer = get_writer(Settings.default_engine())
                     if not writer.check_table_exists(schema, table_name):
                         partition_by = Settings.default_partition_by()
                         engine_settings = Settings.default_engine_settings()
                         sign_column = Settings.default_sign_column()
                         version_column = Settings.default_version_column()
-                        writer.execute(
-                            writer.get_table_create_sql(
-                                reader=self,
-                                schema=schema,
-                                table=table_name,
-                                pk=pk,
-                                partition_by=partition_by,
-                                engine_settings=engine_settings,
-                                sign_column=sign_column,
-                                version_column=version_column,
-                            )
+                        query = writer.get_table_create_sql(
+                            reader=self,
+                            schema=schema,
+                            table=table_name,
+                            pk=pk,
+                            partition_by=partition_by,
+                            engine_settings=engine_settings,
+                            sign_column=sign_column,
+                            version_column=version_column,
                         )
-                        if Settings.is_cluster():
-                            for w in get_writer(choice=False):
-                                w.execute(
-                                    w.get_distributed_table_create_sql(
-                                        schema, table_name, Settings.get(
-                                            "clickhouse.distributed_suffix")
-                                    )
-                                )
-                        if self.fix_column_type and not Settings.default_skip_decimal():
-                            writer.fix_table_column_type(
-                                self, schema, table_name)
-                        full_insert_sql = writer.get_full_insert_sql(
-                            self, schema, table_name, sign_column)
-                        writer.execute(full_insert_sql)
-                        Settings.set_table(alias, schema, table_name)
-                        logger.info(
-                            f"full data etl for {schema}.{table_name} success")
+                        event = {
+                            "table": table_name,
+                            "schema": schema,
+                            "action": "create",
+                            "values": {"query": query},
+                            "event_unixtime": int(time.time() * 10 ** 6),
+                            "action_seq": 0,
+                            "partition_by": partition_by,
+                            "engine_settings": engine_settings,
+                            "sign_column": sign_column,
+                            "version_column": version_column,
+                        }
+                        self.source_db = Settings.get_source_db(alias)
+                        yield schema, table, event, stream.log_file, stream.log_pos
                 else:
                     continue
             else:
@@ -282,3 +306,19 @@ class Mysql(Reader):
                     else:
                         return
                     yield binlog_event.schema, binlog_event.table, event, stream.log_file, stream.log_pos
+
+    def new_tables_and_pks(self, schema: str, table: str, tables_dict: dict, tables_pk: dict):
+        new_table_dict = {
+            'table': table,
+            'skip_decimal': False,
+            'auto_full_etl': True,
+            'clickhouse_engine': 'ReplacingMergeTree',
+            'partition_by': None,
+            'engine_settings': None,
+            'sign_column': 'sign',
+            'version_column': None
+        }
+        tables_dict[table] = new_table_dict
+        new_table_pk = self.get_primary_key(schema, table)
+        tables_pk[table] = new_table_pk
+        return tables_dict, tables_pk

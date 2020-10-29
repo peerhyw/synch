@@ -6,7 +6,7 @@ from typing import Callable, Dict
 
 from synch.common import insert_log
 from synch.enums import ClickHouseEngine
-from synch.factory import get_broker, get_writer
+from synch.factory import get_broker, get_writer, get_reader
 from synch.settings import Settings
 
 logger = logging.getLogger("synch.replication.continuous")
@@ -75,6 +75,7 @@ def continuous_etl(
                 continue
         else:
             alter_table = False
+            create_table = False
             query = None
             logger.debug(f"msg_id:{msg_id}, msg:{msg}")
             len_event += 1
@@ -87,12 +88,16 @@ def continuous_etl(
             if action == "query":
                 alter_table = True
                 query = values["query"]
+            elif action == "create":
+                create_table = True
+                query = values["query"]
             else:
+                get_table = tables_dict.get(table)
+                if get_table is None and alias == "mysql_db":
+                    tables_dict, tables_pk = get_reader(alias).new_tables_and_pks(schema, table, tables_dict, tables_pk)
                 engine = tables_dict.get(table).get("clickhouse_engine")
                 writer = get_writer(engine)
-                event_list = writer.handle_event(
-                    tables_dict, tables_pk.get(table), schema, table, action, event_list, event,
-                )
+                event_list = writer.handle_event(tables_dict, tables_pk.get(table), schema, table, action, event_list, event,)
 
             if (
                 len_event == insert_num
@@ -100,7 +105,7 @@ def continuous_etl(
             ):
                 is_insert = True
 
-        if is_insert or alter_table:
+        if is_insert or alter_table or create_table:
             for table, v in event_list.items():
                 table_event_num = 0
                 pk = tables_pk.get(table)
@@ -154,9 +159,29 @@ def continuous_etl(
 
                 insert_log(alias, schema, table, table_event_num, 2)
 
-            if alter_table:
+            if alter_table or create_table:
                 try:
                     get_writer().execute(query)
+                    if create_table:
+                        if Settings.is_cluster():
+                            for w in get_writer(choice=False):
+                                w.execute(
+                                    w.get_distributed_table_create_sql(
+                                        schema, table_name, Settings.get(
+                                            "clickhouse.distributed_suffix")
+                                    )
+                                )
+                        reader = get_reader(alias)
+                        if reader.fix_column_type and not Settings.default_skip_decimal():
+                            get_writer().fix_table_column_type(
+                                reader, schema, table)
+                        full_insert_sql = get_writer().get_full_insert_sql(
+                            reader, schema, table, event["sign_column"])
+                        get_writer().execute(full_insert_sql)
+                        Settings.set_table(alias, schema, table)
+                        logger.info(
+                            f"full data etl for {schema}.{table} success")
+                        logger.info(f"reload synch.yaml")
                 except Exception as e:
                     logger.error(f"alter table error: {e}", exc_info=True, stack_info=True)
                     if not skip_error:

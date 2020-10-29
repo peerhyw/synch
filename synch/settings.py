@@ -10,12 +10,14 @@ logger = logging.getLogger("synch.reader.mysql")
 class Settings:
     _config: Dict
     _file_path: str
+    _update_config: bool
 
     @classmethod
     def init(cls, file_path: str):
         cls._file_path = file_path
         with open(file_path, "r") as f:
             cls._config = yaml.safe_load(f)
+        cls._update_config = False
 
     @classmethod
     def debug(cls):
@@ -135,38 +137,50 @@ class Settings:
         """
         get config item
         """
-        c = cls._config
+        if cls._update_config == True:
+            c = cls.reload_yaml()
+        else:
+            c = cls._config
         for arg in args:
             c = c.get(arg)
         return c
 
     @classmethod
     @functools.lru_cache()
+    def reload_yaml(cls):
+        with open(cls._file_path, "r") as f:
+            c = cls._config = yaml.safe_load(f)
+        return c
+
+    @classmethod
+    @functools.lru_cache()
     def set_table(cls, alias: str, schema: str, table_name: str):
         flag = f'#table_flag_{alias}_{schema}...'
-        data = ''
-        logger.debug(f"{flag} {cls._file_path}")
-        with open(cls._file_path, 'r+') as f:
-            for line in f.readlines():
-                if(line.find(flag) != -1):
-                    indent = '\t\t\t\t\t'
-                    line = indent + '- table: %s' % table_name + '\n'
-                    line += indent + '\t# optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.\n'
-                    line += indent + '\tskip_decimal: false' + '\n'
-                    line += indent + '\t# optional, default true\n'
-                    line += indent + '\tauto_full_etl: true' + '\n'
-                    line += indent + '\t# optional, default ReplacingMergeTree\n'
-                    line += indent + '\tclickhouse_engine: ReplacingMergeTree' + '\n'
-                    line += indent + '\t# optional\n'
-                    line += indent + '\tpartition_by:' + '\n'
-                    line += indent + '\t# optional\n'
-                    line += indent + '\tengine_settings:' + '\n'
-                    line += indent + '\t# optional\n'
-                    line += indent + '\tsign_column: sign' + '\n'
-                    line += indent + '\t# optional\n'
-                    line += indent + '\tversion_column:' + '\n'
-                    line += indent + flag + '\n'
-                data += line
+        indent = '  '  # 2 spaces/indent
+        indent_t = indent * 5
+        indent_d = indent * 6
+        lines = '- table: %s' % table_name + '\n'
+        lines += indent_d + '# optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.\n'
+        lines += indent_d + 'skip_decimal: false' + '\n'
+        lines += indent_d + '# optional, default true\n'
+        lines += indent_d + 'auto_full_etl: true' + '\n'
+        lines += indent_d + '# optional, default ReplacingMergeTree\n'
+        lines += indent_d + 'clickhouse_engine: ReplacingMergeTree' + '\n'
+        lines += indent_d + '# optional\n'
+        lines += indent_d + 'partition_by:' + '\n'
+        lines += indent_d + '# optional\n'
+        lines += indent_d + 'engine_settings:' + '\n'
+        lines += indent_d + '# optional\n'
+        lines += indent_d + 'sign_column: sign' + '\n'
+        lines += indent_d + '# optional\n'
+        lines += indent_d + 'version_column:' + '\n' + indent_t
 
-        with open(cls._file_path, 'r+') as f:
-            f.writelines(data)
+        file = open(cls._file_path, "r")
+        content = file.read()
+        pos = content.find(flag)
+        if pos != -1:
+            content = content[:pos] + lines + content[pos:]
+            file = open(cls._file_path, "w")
+            file.write(content)
+            file.close()
+            cls._update_config = True
