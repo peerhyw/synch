@@ -166,32 +166,48 @@ class Mysql(Reader):
             slave_heartbeat=10,
         )
         while True:
-            for schema, table, event, stream.log_file, stream.log_pos in self.read_from_stream(stream, alias, auto_create_table):
-                yield schema, table, event, stream.log_file, stream.log_pos
-                if event["action"] == "create":
-                    only_tables.append(table)
-                    stream = BinLogStreamReader(
-                        connection_settings=dict(
-                            host=self.host, port=self.port, user=self.user, passwd=self.password,
-                        ),
-                        resume_stream=True,
-                        blocking=True,
-                        server_id=server_id,
-                        only_tables=only_tables,
-                        only_schemas=only_schemas,
-                        only_events=self.only_events,
-                        log_file=stream.log_file,
-                        log_pos=stream.log_pos,
-                        fail_on_table_metadata_unavailable=True,
-                        slave_heartbeat=10,
-                    )
-                break
+            for schema, table, event, stream.log_file, stream.log_pos in self.read_from_stream(
+                stream,
+                alias,
+                auto_create_table,
+                skip_dmls,
+                skip_delete_tables,
+                skip_update_tables
+            ):
+                # yield schema, table, event, stream.log_file, stream.log_pos
+                if isinstance(event, list):
+                    for e in event:
+                        yield schema, table, e, stream.log_file, stream.log_pos
+                else:
+                    yield schema, table, event, stream.log_file, stream.log_pos
+
+                    if event["action"] == "create":
+                        only_tables.append(table)
+                        stream = BinLogStreamReader(
+                            connection_settings=dict(
+                                host=self.host, port=self.port, user=self.user, passwd=self.password,
+                            ),
+                            resume_stream=True,
+                            blocking=True,
+                            server_id=server_id,
+                            only_tables=only_tables,
+                            only_schemas=only_schemas,
+                            only_events=self.only_events,
+                            log_file=stream.log_file,
+                            log_pos=stream.log_pos,
+                            fail_on_table_metadata_unavailable=True,
+                            slave_heartbeat=10,
+                        )
+                    break
 
     def read_from_stream(
         self,
         stream,
         alias,
-        auto_create_table
+        auto_create_table,
+        skip_dmls,
+        skip_delete_tables,
+        skip_update_tables
     ) -> Generator:
         for binlog_event in stream:
             if isinstance(binlog_event, QueryEvent):
@@ -273,7 +289,6 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 2,
                         }
-
                     elif isinstance(binlog_event, UpdateRowsEvent):
                         if "update" in skip_dmls or skip_dml_table_name in skip_update_tables:
                             continue
@@ -285,7 +300,7 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 1,
                         }
-                        yield binlog_event.schema, binlog_event.table, delete_event, stream.log_file, stream.log_pos
+                        # yield binlog_event.schema, binlog_event.table, delete_event, stream.log_file, stream.log_pos
                         event = {
                             "table": table,
                             "schema": schema,
@@ -294,7 +309,7 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 2,
                         }
-
+                        event = [delete_event, event]
                     elif isinstance(binlog_event, DeleteRowsEvent):
                         if "delete" in skip_dmls or skip_dml_table_name in skip_delete_tables:
                             continue
