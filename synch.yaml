@@ -46,20 +46,20 @@ source_dbs:
         auto_create_table: false
         tables:
           - table: h
-						# optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.
-						skip_decimal: false
-						# optional, default true
-						auto_full_etl: true
-						# optional, default ReplacingMergeTree
-						clickhouse_engine: ReplacingMergeTree
-						# optional
-						partition_by:
-						# optional
-						engine_settings:
-						# optional
-						sign_column: sign
-						# optional
-						version_column:
+            # optional, default false, if your table has decimal column with nullable, there is a bug with full data etl will, see https://github.com/ClickHouse/ClickHouse/issues/7690.
+            skip_decimal: false
+            # optional, default true
+            auto_full_etl: true
+            # optional, default ReplacingMergeTree
+            clickhouse_engine: ReplacingMergeTree
+            # optional
+            partition_by:
+            # optional
+            engine_settings:
+            # optional
+            sign_column: sign
+            # optional
+            version_column:
 					#table_flag_mysql_db_clickhouse...
   - db_type: postgres
     alias: postgres_db
