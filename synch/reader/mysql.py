@@ -215,6 +215,7 @@ class Mysql(Reader):
                 if len(schema) == 0:
                     schema = self.default_schema
                 query = binlog_event.query.lower()
+                logger.debug("query:" + query)
                 if "alter" in query:
                     table, convent_sql = SqlConvert.to_clickhouse(
                         schema, query, Settings.cluster_name()
@@ -274,6 +275,7 @@ class Mysql(Reader):
                 else:
                     continue
             else:
+                event_list = []
                 schema = binlog_event.schema
                 if len(schema) == 0:
                     schema = self.default_schema
@@ -289,6 +291,7 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 2,
                         }
+                        event_list.append(event)
                     elif isinstance(binlog_event, UpdateRowsEvent):
                         if "update" in skip_dmls or skip_dml_table_name in skip_update_tables:
                             continue
@@ -309,7 +312,8 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 2,
                         }
-                        event = [delete_event, event]
+                        event_list.append(delete_event)
+                        event_list.append(event)
                     elif isinstance(binlog_event, DeleteRowsEvent):
                         if "delete" in skip_dmls or skip_dml_table_name in skip_delete_tables:
                             continue
@@ -321,9 +325,10 @@ class Mysql(Reader):
                             "event_unixtime": int(time.time() * 10 ** 6),
                             "action_seq": 1,
                         }
+                        event_list.append(event)
                     else:
-                        return
-                    yield binlog_event.schema, binlog_event.table, event, stream.log_file, stream.log_pos
+                        pass
+                    yield binlog_event.schema, binlog_event.table, event_list, stream.log_file, stream.log_pos
 
     def new_tables_and_pks(self, schema: str, table: str, tables_dict: dict, tables_pk: dict):
         new_table_dict = {
