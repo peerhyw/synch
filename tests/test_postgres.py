@@ -1,6 +1,6 @@
 from conftest import alias_postgres, get_postgres_database
-from synch.factory import get_reader
-from synch.reader.postgres import Postgres
+from synchp.factory import get_reader
+from synchp.reader.postgres import Postgres
 
 
 def test_get_pk():

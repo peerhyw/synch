@@ -6,9 +6,9 @@ homepage = "https://github.com/long2ice/synch"
 include = ["CHANGELOG.md", "LICENSE", "README.md", "pyproject.toml"]
 keywords = ["MySQL", "ClickHouse", "Sync", "replication"]
 license = "Apache-2.0"
-name = "synch"
+name = "synchp"
 packages = [
-  {include = "synch"},
+  {include = "synchp"},
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/synch.git"
@@ -43,4 +43,4 @@ build-backend = "poetry.masonry.api"
 requires = ["poetry>=0.12"]
 
 [tool.poetry.scripts]
-synch = "synch.cli:cli"
+synchp = "synchp.cli:cli"

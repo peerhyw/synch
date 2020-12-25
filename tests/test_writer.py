@@ -1,5 +1,11 @@
+'''
+Author: peer
+Date: 2020-10-27 18:20:15
+LastEditTime: 2020-12-25 13:36:40
+Description: file content
+'''
 from conftest import get_mysql_database
-from synch.factory import get_writer
+from synchp.factory import get_writer
 
 
 def test_table_exists():

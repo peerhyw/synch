@@ -1,5 +1,5 @@
 from conftest import alias_mysql, get_mysql_database
-from synch.factory import get_reader
+from synchp.factory import get_reader
 
 
 def test_get_pk():

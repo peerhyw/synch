@@ -3,8 +3,8 @@ from decimal import Decimal
 import pytest
 
 from conftest import alias_mysql, alias_postgres, get_mysql_database, get_postgres_database
-from synch.factory import get_reader, get_writer
-from synch.replication.etl import etl_full
+from synchp.factory import get_reader, get_writer
+from synchp.replication.etl import etl_full
 
 
 @pytest.mark.usefixtures("truncate_postgres_table")

@@ -1,14 +1,14 @@
 '''
 Author: peer
 Date: 2020-11-06 13:24:02
-LastEditTime: 2020-12-04 11:28:47
+LastEditTime: 2020-12-25 13:14:25
 Description: file content
 '''
 # -*- coding: utf-8 -*-
 from setuptools import setup
 
 packages = \
-    ['synch', 'synch.broker', 'synch.reader', 'synch.replication', 'synch.writer']
+    ['synchp', 'synchp.broker', 'synchp.reader', 'synchp.replication', 'synchp.writer']
 
 package_data = \
     {'': ['*']}
@@ -28,7 +28,7 @@ install_requires = \
      'sentry-sdk']
 
 entry_points = \
-    {'console_scripts': ['synch-dev = synch.cli:cli']}
+    {'console_scripts': ['synch-dev = synchp.cli:cli']}
 
 setup_kwargs = {
     'name': 'synch-dev',

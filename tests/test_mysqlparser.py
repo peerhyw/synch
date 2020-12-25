@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from synch.convert import SqlConvert
+from synchp.convert import SqlConvert
 
 
 class TestMySQLParser(TestCase):

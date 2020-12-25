@@ -1,4 +1,4 @@
-from synch.settings import Settings
+from synchp.settings import Settings
 
 
 def test_parse_config_file():

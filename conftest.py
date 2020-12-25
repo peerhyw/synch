@@ -1,8 +1,8 @@
 import psycopg2
 import pytest
 
-from synch.factory import get_reader, get_writer, init
-from synch.settings import Settings
+from synchp.factory import get_reader, get_writer, init
+from synchp.settings import Settings
 
 alias_postgres = "postgres_db"
 alias_mysql = "mysql_db"
