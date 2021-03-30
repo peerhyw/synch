@@ -1,3 +1,11 @@
+此工具为我优化改进版
+
+项目目录下执行 sudo python3 setup.py install 安装成为本地可执行文件
+
+全量命令 synch-dev --alias mysql_db --config ~/synch/synch.yaml etl --schema 优考试
+同步二进制日志命令 synch-dev --alias mysql_db --config ~/synch/synch.yaml produce
+消费二进制日志命令 synch-dev --alias mysql_db --config ~/synch/synch.yaml consume --schema joomla
+
 # Synch
 
 ![pypi](https://img.shields.io/pypi/v/synch.svg?style=flat)
